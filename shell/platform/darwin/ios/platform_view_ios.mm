@@ -28,6 +28,7 @@ PlatformMessageRouter& PlatformViewIOS::GetPlatformMessageRouter() {
 }
 
 // |PlatformView|
+// [my] ios 上的实现
 void PlatformViewIOS::HandlePlatformMessage(fml::RefPtr<flutter::PlatformMessage> message) {
   platform_message_router_.HandlePlatformMessage(std::move(message));
 }

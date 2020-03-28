@@ -103,6 +103,7 @@ void PlatformView::UpdateSemantics(SemanticsNodeUpdates update,
                                    CustomAccessibilityActionUpdates actions) {}
 
 void PlatformView::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
+  printf("[my][file %s][line %s][function %s]", __FILE__, __LINE__,  __FUNCTION__);
   if (auto response = message->response())
     response->CompleteEmpty();
 }

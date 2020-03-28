@@ -158,6 +158,7 @@ void PlatformViewAndroid::InvokePlatformMessageEmptyResponseCallback(
 }
 
 // |PlatformView|
+// [my] 安卓上的实现
 void PlatformViewAndroid::HandlePlatformMessage(
     fml::RefPtr<flutter::PlatformMessage> message) {
   JNIEnv* env = fml::jni::AttachCurrentThread();

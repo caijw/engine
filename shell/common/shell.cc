@@ -1006,10 +1006,12 @@ void Shell::OnEngineHandlePlatformMessage(
     HandleEngineSkiaMessage(std::move(message));
     return;
   }
-
+  // [my] 提交 task 给 platform task runner
   task_runners_.GetPlatformTaskRunner()->PostTask(
       [view = platform_view_->GetWeakPtr(), message = std::move(message)]() {
         if (view) {
+          // My; 调用 PlatformView 的 HandlePlatformMessage 方法
+          // PlatformView 在不同平台有不同的实现
           view->HandlePlatformMessage(std::move(message));
         }
       });

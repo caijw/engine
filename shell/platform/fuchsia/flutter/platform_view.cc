@@ -573,8 +573,10 @@ std::unique_ptr<flutter::Surface> PlatformView::CreateRenderingSurface() {
 }
 
 // |flutter::PlatformView|
+// [my] linux 好像就是这里处理的
 void PlatformView::HandlePlatformMessage(
     fml::RefPtr<flutter::PlatformMessage> message) {
+  printf("[my][file %s][line %s][function %s]", __FILE__, __LINE__,  __FUNCTION__);
   if (!message) {
     return;
   }
