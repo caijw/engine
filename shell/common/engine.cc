@@ -34,6 +34,7 @@ static constexpr char kNavigationChannel[] = "flutter/navigation";
 static constexpr char kLocalizationChannel[] = "flutter/localization";
 static constexpr char kSettingsChannel[] = "flutter/settings";
 static constexpr char kIsolateChannel[] = "flutter/isolate";
+static constexpr char kWeOSIPCChannel[] = "WeOS/IPC";
 
 Engine::Engine(Delegate& delegate,
                const PointerDataDispatcherMaker& dispatcher_maker,
@@ -456,6 +457,8 @@ void Engine::UpdateSemantics(SemanticsNodeUpdates update,
 void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
   if (message->channel() == kAssetChannel) {
     HandleAssetPlatformMessage(std::move(message));
+  } else if (message->channel() == kWeOSIPCChannel) {
+    HandleWeOSIPCMessage(std::move(message));
   } else {
     delegate_.OnEngineHandlePlatformMessage(std::move(message));
   }
@@ -504,6 +507,15 @@ void Engine::HandleAssetPlatformMessage(fml::RefPtr<PlatformMessage> message) {
     }
   }
 
+  response->CompleteEmpty();
+}
+
+void Engine::HandleWeOSIPCMessage(fml::RefPtr<PlatformMessage> message) {
+  fml::RefPtr<PlatformMessageResponse> response = message->response();
+  if (!response) {
+    return;
+  }
+  printf("[my]HandleWeOSIPCMessage");
   response->CompleteEmpty();
 }
 
