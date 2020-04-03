@@ -95,7 +95,8 @@ Dart_Handle SendPlatformMessage(Dart_Handle window,
                                 Dart_Handle data_handle) {
   UIDartState* dart_state = UIDartState::Current();
   // printf("[my]on Dart_Handle SendPlatformMessage\n");
-  std::cout << "[my]on Dart_Handle SendPlatformMessage\n" << std::endl;
+  // std::cout << "[my]on Dart_Handle SendPlatformMessage\n" << std::endl;
+  FML_LOG(ERROR) << "[my]on Dart_Handle SendPlatformMessage\n" << std::endl;
   if (!dart_state->window()) {
     return tonic::ToDart(
         "Platform messages can only be sent from the main isolate");
@@ -123,8 +124,9 @@ Dart_Handle SendPlatformMessage(Dart_Handle window,
 }
 
 void _SendPlatformMessage(Dart_NativeArguments args) {
-  printf("[my]on _SendPlatformMessage\n");
-  std::cout << "[my]on _SendPlatformMessage\n" << std::endl;
+  // printf("[my]on _SendPlatformMessage\n");
+  // std::cout << "[my]on _SendPlatformMessage\n" << std::endl;
+  FML_LOG(ERROR) << "[my]on _SendPlatformMessage\n" << std::endl;
   tonic::DartCallStatic(&SendPlatformMessage, args);
 }
 
