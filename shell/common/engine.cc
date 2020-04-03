@@ -35,6 +35,7 @@ static constexpr char kLocalizationChannel[] = "flutter/localization";
 static constexpr char kSettingsChannel[] = "flutter/settings";
 static constexpr char kIsolateChannel[] = "flutter/isolate";
 static constexpr char kWeOSIPCChannel[] = "WeOS/IPC";
+// static constexpr char kWeOSIPCChannel[] = "plugin2";
 
 Engine::Engine(Delegate& delegate,
                const PointerDataDispatcherMaker& dispatcher_maker,
@@ -455,11 +456,13 @@ void Engine::UpdateSemantics(SemanticsNodeUpdates update,
 }
 
 void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
+  printf("[my]on void Engine::HandlePlatformMessage");
   if (message->channel() == kAssetChannel) {
     HandleAssetPlatformMessage(std::move(message));
   } else if (message->channel() == kWeOSIPCChannel) {
     HandleWeOSIPCMessage(std::move(message));
   } else {
+    printf("[my]delegate_.OnEngineHandlePlatformMessage");
     delegate_.OnEngineHandlePlatformMessage(std::move(message));
   }
 }
