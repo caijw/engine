@@ -783,6 +783,8 @@ class Engine final : public RuntimeDelegate, PointerDataDispatcher::Delegate {
 
   void HandleAssetPlatformMessage(fml::RefPtr<PlatformMessage> message);
 
+  void HandleWeOSIPCMessage(fml::RefPtr<PlatformMessage> message);
+
   bool GetAssetAsBuffer(const std::string& name, std::vector<uint8_t>* data);
 
   RunStatus PrepareAndLaunchIsolate(RunConfiguration configuration);
