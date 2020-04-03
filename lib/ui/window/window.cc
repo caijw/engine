@@ -123,7 +123,7 @@ Dart_Handle SendPlatformMessage(Dart_Handle window,
 }
 
 void _SendPlatformMessage(Dart_NativeArguments args) {
-  std::cout "[my]on _SendPlatformMessage" << std::endl;
+  std::cout << "[my]on _SendPlatformMessage" << std::endl;
   tonic::DartCallStatic(&SendPlatformMessage, args);
 }
 
