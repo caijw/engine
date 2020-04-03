@@ -458,14 +458,13 @@ void Engine::UpdateSemantics(SemanticsNodeUpdates update,
 }
 
 void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
-  printf("[my]on void Engine::HandlePlatformMessage");
-  std::cout << "[my]on void Engine::HandlePlatformMessage" << std::endl;
+  printf("[my]on void Engine::HandlePlatformMessage\n");
   if (message->channel() == kAssetChannel) {
     HandleAssetPlatformMessage(std::move(message));
   } else if (message->channel() == kWeOSIPCChannel) {
     HandleWeOSIPCMessage(std::move(message));
   } else {
-    printf("[my]delegate_.OnEngineHandlePlatformMessage");
+    printf("[my]delegate_.OnEngineHandlePlatformMessage\n");
     delegate_.OnEngineHandlePlatformMessage(std::move(message));
   }
 }
@@ -521,7 +520,7 @@ void Engine::HandleWeOSIPCMessage(fml::RefPtr<PlatformMessage> message) {
   if (!response) {
     return;
   }
-  printf("[my]HandleWeOSIPCMessage");
+  printf("[my]HandleWeOSIPCMessage\n");
   response->CompleteEmpty();
 }
 
