@@ -26,6 +26,8 @@
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 
+#include <iostream>
+
 namespace flutter {
 
 static constexpr char kAssetChannel[] = "flutter/assets";
@@ -457,6 +459,7 @@ void Engine::UpdateSemantics(SemanticsNodeUpdates update,
 
 void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
   printf("[my]on void Engine::HandlePlatformMessage");
+  std::cout << "[my]on void Engine::HandlePlatformMessage" << std::endl;
   if (message->channel() == kAssetChannel) {
     HandleAssetPlatformMessage(std::move(message));
   } else if (message->channel() == kWeOSIPCChannel) {
