@@ -458,8 +458,6 @@ void Engine::UpdateSemantics(SemanticsNodeUpdates update,
 }
 
 void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
-  // printf("[my]on void Engine::HandlePlatformMessage\n");
-  // std::cout << "[my]on void Engine::HandlePlatformMessage\n" << std::endl;
   FML_LOG(ERROR) << "[my]on void Engine::HandlePlatformMessage\n" << std::endl;
   if (message->channel() == kAssetChannel) {
     HandleAssetPlatformMessage(std::move(message));

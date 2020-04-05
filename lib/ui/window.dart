@@ -1143,6 +1143,7 @@ class Window {
     if (error != null)
       throw Exception(error);
   }
+  // 调用 window.cc 的 _SendPlatformMessage
   String _sendPlatformMessage(String name,
                               PlatformMessageResponseCallback callback,
                               ByteData data) native 'Window_sendPlatformMessage';
