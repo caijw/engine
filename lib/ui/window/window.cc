@@ -190,7 +190,7 @@ Window::~Window() {}
 
 void Window::DidCreateIsolate() {
   library_.Set(tonic::DartState::Current(),
-               Dart_LookupLibrary(tonic::ToDart("dart:ui")));
+               Dart_LookupLibrary(tonic::ToDart("dart:ui"))); // [my] library_ 是 dart:ui 库
 }
 
 void Window::UpdateWindowMetrics(const ViewportMetrics& metrics) {
@@ -279,7 +279,7 @@ void Window::UpdateAccessibilityFeatures(int32_t values) {
                                            "_updateAccessibilityFeatures",
                                            {tonic::ToDart(values)}));
 }
-
+// [my] platform 发送 methodcall 消息给 dart 框架
 void Window::DispatchPlatformMessage(fml::RefPtr<PlatformMessage> message) {
   std::shared_ptr<tonic::DartState> dart_state = library_.dart_state().lock();
   if (!dart_state) {
@@ -303,7 +303,8 @@ void Window::DispatchPlatformMessage(fml::RefPtr<PlatformMessage> message) {
     response_id = next_response_id_++;
     pending_responses_[response_id] = response;
   }
-
+  // [my] c++ 调用 dart 的 lib/ui/hooks.dart _dispatchPlatformMessage
+  // std::cout << "[my][window.cc]" << library_.value() << message->channel()  << std::endl;
   tonic::LogIfError(
       tonic::DartInvokeField(library_.value(), "_dispatchPlatformMessage",
                              {tonic::ToDart(message->channel()), data_handle,

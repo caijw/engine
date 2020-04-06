@@ -1138,12 +1138,13 @@ class Window {
   void sendPlatformMessage(String name,
                            ByteData data,
                            PlatformMessageResponseCallback callback) {
+    // print('[my][dart]sendPlatformMessage');
     final String error =
         _sendPlatformMessage(name, _zonedPlatformMessageResponseCallback(callback), data);
     if (error != null)
       throw Exception(error);
   }
-  // 调用 window.cc 的 _SendPlatformMessage
+  // [my] 调用 window.cc 的 _SendPlatformMessage
   String _sendPlatformMessage(String name,
                               PlatformMessageResponseCallback callback,
                               ByteData data) native 'Window_sendPlatformMessage';

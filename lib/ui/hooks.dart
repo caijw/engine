@@ -152,6 +152,7 @@ void _updateAccessibilityFeatures(int values) {
 @pragma('vm:entry-point')
 // ignore: unused_element
 void _dispatchPlatformMessage(String name, ByteData data, int responseId) {
+  // [my] platform 发送 methocall 消息过来
   if (name == ChannelBuffers.kControlChannelName) {
     try {
       channelBuffers.handleMessage(data);
@@ -161,6 +162,12 @@ void _dispatchPlatformMessage(String name, ByteData data, int responseId) {
       window._respondToPlatformMessage(responseId, null);
     }
   } else if (window.onPlatformMessage != null) {
+    print('[my][dart]_dispatchPlatformMessage');
+    print(name);
+    print(data);
+    print(responseId);
+    // 调用了 window.onPlatformMessage 进行处理，window.onPlatformMessage 是
+    // flutter/packages/flutter/lib/src/services/binding.dart 中的 handlePlatformMessage
     _invoke3<String, ByteData, PlatformMessageResponseCallback>(
       window.onPlatformMessage,
       window._onPlatformMessageZone,
