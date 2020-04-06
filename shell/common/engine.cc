@@ -458,7 +458,7 @@ void Engine::UpdateSemantics(SemanticsNodeUpdates update,
 }
 
 void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
-  FML_LOG(ERROR) << "[my]on void Engine::HandlePlatformMessage\n" << std::endl;
+  // FML_LOG(ERROR) << "[my]on void Engine::HandlePlatformMessage\n" << std::endl;
   if (message->channel() == kAssetChannel) {
     HandleAssetPlatformMessage(std::move(message));
   } else if (message->channel() == kWeOSIPCChannel) {
@@ -466,7 +466,7 @@ void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
   } else {
     // printf("[my]delegate_.OnEngineHandlePlatformMessage\n");
     // std::cout << "[my]delegate_.OnEngineHandlePlatformMessage\n" << std::endl;
-    FML_LOG(ERROR) << "[my]delegate_.OnEngineHandlePlatformMessage\n" << std::endl;
+    // FML_LOG(ERROR) << "[my]delegate_.OnEngineHandlePlatformMessage\n" << std::endl;
     delegate_.OnEngineHandlePlatformMessage(std::move(message));
   }
 }
@@ -524,7 +524,7 @@ void Engine::HandleWeOSIPCMessage(fml::RefPtr<PlatformMessage> message) {
   }
   // printf("[my]HandleWeOSIPCMessage\n");
   // std::cout << "[my]HandleWeOSIPCMessage\n" << std::endl;
-  FML_LOG(ERROR) << "[my]HandleWeOSIPCMessage\n" << std::endl;
+  // FML_LOG(ERROR) << "[my]HandleWeOSIPCMessage\n" << std::endl;
   response->CompleteEmpty();
 }
 
