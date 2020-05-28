@@ -8,6 +8,8 @@
 
 #include <utility>
 
+#include "flutter/fml/time/time_delta.h"
+#include "flutter/fml/time/time_point.h"
 #include "third_party/skia/include/core/SkEncodedImageFormat.h"
 #include "third_party/skia/include/core/SkImageEncoder.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
@@ -26,36 +28,45 @@ static constexpr std::chrono::milliseconds kSkiaCleanupExpiration(15000);
 static Rasterizer::DummyDelegate dummy_delegate_;
 Rasterizer::Rasterizer(
     TaskRunners task_runners,
-    std::unique_ptr<flutter::CompositorContext> compositor_context)
+    std::unique_ptr<flutter::CompositorContext> compositor_context,
+    std::shared_ptr<fml::SyncSwitch> is_gpu_disabled_sync_switch)
     : Rasterizer(dummy_delegate_,
                  std::move(task_runners),
-                 std::move(compositor_context)) {}
-
-Rasterizer::Rasterizer(Delegate& delegate, TaskRunners task_runners)
-    : Rasterizer(delegate,
-                 std::move(task_runners),
-                 std::make_unique<flutter::CompositorContext>(
-                     delegate.GetFrameBudget())) {}
+                 std::move(compositor_context),
+                 is_gpu_disabled_sync_switch) {}
 
 Rasterizer::Rasterizer(
     Delegate& delegate,
     TaskRunners task_runners,
-    std::unique_ptr<flutter::CompositorContext> compositor_context)
+    std::shared_ptr<fml::SyncSwitch> is_gpu_disabled_sync_switch)
+    : Rasterizer(delegate,
+                 std::move(task_runners),
+                 std::make_unique<flutter::CompositorContext>(
+                     delegate.GetFrameBudget()),
+                 is_gpu_disabled_sync_switch) {}
+
+Rasterizer::Rasterizer(
+    Delegate& delegate,
+    TaskRunners task_runners,
+    std::unique_ptr<flutter::CompositorContext> compositor_context,
+    std::shared_ptr<fml::SyncSwitch> is_gpu_disabled_sync_switch)
     : delegate_(delegate),
       task_runners_(std::move(task_runners)),
       compositor_context_(std::move(compositor_context)),
       user_override_resource_cache_bytes_(false),
-      weak_factory_(this) {
+      weak_factory_(this),
+      is_gpu_disabled_sync_switch_(is_gpu_disabled_sync_switch) {
   FML_DCHECK(compositor_context_);
 }
 
 Rasterizer::~Rasterizer() = default;
 
-fml::WeakPtr<Rasterizer> Rasterizer::GetWeakPtr() const {
+fml::TaskRunnerAffineWeakPtr<Rasterizer> Rasterizer::GetWeakPtr() const {
   return weak_factory_.GetWeakPtr();
 }
 
-fml::WeakPtr<SnapshotDelegate> Rasterizer::GetSnapshotDelegate() const {
+fml::TaskRunnerAffineWeakPtr<SnapshotDelegate> Rasterizer::GetSnapshotDelegate()
+    const {
   return weak_factory_.GetWeakPtr();
 }
 
@@ -129,9 +140,23 @@ void Rasterizer::Draw(fml::RefPtr<Pipeline<flutter::LayerTree>> pipeline) {
   // front of the queue and also change the consume status to more available.
   if (raster_status == RasterStatus::kResubmit) {
     auto front_continuation = pipeline->ProduceIfEmpty();
-    front_continuation.Complete(std::move(resubmitted_layer_tree_));
+    bool result =
+        front_continuation.Complete(std::move(resubmitted_layer_tree_));
+    if (result) {
+      consume_result = PipelineConsumeResult::MoreAvailable;
+    }
   } else if (raster_status == RasterStatus::kEnqueuePipeline) {
     consume_result = PipelineConsumeResult::MoreAvailable;
+  }
+
+  // Merging the thread as we know the next `Draw` should be run on the platform
+  // thread.
+  if (raster_status == RasterStatus::kResubmit) {
+    auto* external_view_embedder = surface_->GetExternalViewEmbedder();
+    // We know only the `external_view_embedder` can
+    // causes|RasterStatus::kResubmit|. Check to make sure.
+    FML_DCHECK(external_view_embedder != nullptr);
+    external_view_embedder->EndFrame(raster_thread_merger_);
   }
 
   // Consume as many pipeline items as possible. But yield the event loop
@@ -151,31 +176,10 @@ void Rasterizer::Draw(fml::RefPtr<Pipeline<flutter::LayerTree>> pipeline) {
   }
 }
 
-sk_sp<SkImage> Rasterizer::DoMakeRasterSnapshot(
-    SkISize size,
-    std::function<void(SkCanvas*)> draw_callback) {
-  TRACE_EVENT0("flutter", __FUNCTION__);
-
-  sk_sp<SkSurface> surface;
-  SkImageInfo image_info = SkImageInfo::MakeN32Premul(
-      size.width(), size.height(), SkColorSpace::MakeSRGB());
-  if (surface_ == nullptr || surface_->GetContext() == nullptr) {
-    // Raster surface is fine if there is no on screen surface. This might
-    // happen in case of software rendering.
-    surface = SkSurface::MakeRaster(image_info);
-  } else {
-    if (!surface_->MakeRenderContextCurrent()) {
-      return nullptr;
-    }
-
-    // When there is an on screen surface, we need a render target SkSurface
-    // because we want to access texture backed images.
-    surface = SkSurface::MakeRenderTarget(surface_->GetContext(),  // context
-                                          SkBudgeted::kNo,         // budgeted
-                                          image_info               // image info
-    );
-  }
-
+namespace {
+sk_sp<SkImage> DrawSnapshot(
+    sk_sp<SkSurface> surface,
+    const std::function<void(SkCanvas*)>& draw_callback) {
   if (surface == nullptr || surface->getCanvas() == nullptr) {
     return nullptr;
   }
@@ -201,6 +205,45 @@ sk_sp<SkImage> Rasterizer::DoMakeRasterSnapshot(
   }
 
   return nullptr;
+}
+}  // namespace
+
+sk_sp<SkImage> Rasterizer::DoMakeRasterSnapshot(
+    SkISize size,
+    std::function<void(SkCanvas*)> draw_callback) {
+  TRACE_EVENT0("flutter", __FUNCTION__);
+  sk_sp<SkImage> result;
+  SkImageInfo image_info = SkImageInfo::MakeN32Premul(
+      size.width(), size.height(), SkColorSpace::MakeSRGB());
+  if (surface_ == nullptr || surface_->GetContext() == nullptr) {
+    // Raster surface is fine if there is no on screen surface. This might
+    // happen in case of software rendering.
+    sk_sp<SkSurface> surface = SkSurface::MakeRaster(image_info);
+    result = DrawSnapshot(surface, draw_callback);
+  } else {
+    is_gpu_disabled_sync_switch_->Execute(
+        fml::SyncSwitch::Handlers()
+            .SetIfTrue([&] {
+              sk_sp<SkSurface> surface = SkSurface::MakeRaster(image_info);
+              result = DrawSnapshot(surface, draw_callback);
+            })
+            .SetIfFalse([&] {
+              if (!surface_->MakeRenderContextCurrent()) {
+                return;
+              }
+
+              // When there is an on screen surface, we need a render target
+              // SkSurface because we want to access texture backed images.
+              sk_sp<SkSurface> surface = SkSurface::MakeRenderTarget(
+                  surface_->GetContext(),  // context
+                  SkBudgeted::kNo,         // budgeted
+                  image_info               // image info
+              );
+              result = DrawSnapshot(surface, draw_callback);
+            }));
+  }
+
+  return result;
 }
 
 sk_sp<SkImage> Rasterizer::MakeRasterSnapshot(sk_sp<SkPicture> picture,
@@ -240,6 +283,9 @@ RasterStatus Rasterizer::DoDraw(
   }
 
   FrameTiming timing;
+#if !defined(OS_FUCHSIA)
+  const fml::TimePoint frame_target_time = layer_tree->target_time();
+#endif
   timing.Set(FrameTiming::kBuildStart, layer_tree->build_start());
   timing.Set(FrameTiming::kBuildFinish, layer_tree->build_finish());
   timing.Set(FrameTiming::kRasterStart, fml::TimePoint::Now());
@@ -265,8 +311,39 @@ RasterStatus Rasterizer::DoDraw(
   // TODO(liyuqian): in Fuchsia, the rasterization doesn't finish when
   // Rasterizer::DoDraw finishes. Future work is needed to adapt the timestamp
   // for Fuchsia to capture SceneUpdateContext::ExecutePaintTasks.
-  timing.Set(FrameTiming::kRasterFinish, fml::TimePoint::Now());
+  const auto raster_finish_time = fml::TimePoint::Now();
+  timing.Set(FrameTiming::kRasterFinish, raster_finish_time);
   delegate_.OnFrameRasterized(timing);
+
+// SceneDisplayLag events are disabled on Fuchsia.
+// see: https://github.com/flutter/flutter/issues/56598
+#if !defined(OS_FUCHSIA)
+  if (raster_finish_time > frame_target_time) {
+    fml::TimePoint latest_frame_target_time =
+        delegate_.GetLatestFrameTargetTime();
+    const auto frame_budget_millis = delegate_.GetFrameBudget().count();
+    if (latest_frame_target_time < raster_finish_time) {
+      latest_frame_target_time =
+          latest_frame_target_time +
+          fml::TimeDelta::FromMillisecondsF(frame_budget_millis);
+    }
+    const auto frame_lag =
+        (latest_frame_target_time - frame_target_time).ToMillisecondsF();
+    const int vsync_transitions_missed = round(frame_lag / frame_budget_millis);
+    fml::tracing::TraceEventAsyncComplete(
+        "flutter",                    // category
+        "SceneDisplayLag",            // name
+        raster_finish_time,           // begin_time
+        latest_frame_target_time,     // end_time
+        "frame_target_time",          // arg_key_1
+        frame_target_time,            // arg_val_1
+        "current_frame_target_time",  // arg_key_2
+        latest_frame_target_time,     // arg_val_2
+        "vsync_transitions_missed",   // arg_key_3
+        vsync_transitions_missed      // arg_val_3
+    );
+  }
+#endif
 
   // Pipeline pressure is applied from a couple of places:
   // rasterizer: When there are more items as of the time of Consume.
