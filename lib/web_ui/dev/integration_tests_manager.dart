@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
+
 import 'dart:io' as io;
 import 'package:path/path.dart' as pathlib;
 import 'package:web_driver_installer/chrome_driver_installer.dart';
@@ -51,7 +53,7 @@ class IntegrationTestsManager {
         // LUCI installs driver from CIPD, so we skip installing it on LUCI.
         await _prepareDriver();
       } else {
-        await _verifyDriverForLUCI();
+        _verifyDriverForLUCI();
       }
       await _startDriver(_browserDriverDir.path);
       // TODO(nurhan): https://github.com/flutter/flutter/issues/52987
@@ -109,13 +111,13 @@ class IntegrationTestsManager {
     }
   }
 
-  void _startDriver(String workingDirectory) async {
+  Future<void> _startDriver(String workingDirectory) async {
     await startProcess('./chromedriver/chromedriver', ['--port=4444'],
         workingDirectory: workingDirectory);
     print('INFO: Driver started');
   }
 
-  void _prepareDriver() async {
+  Future<void> _prepareDriver() async {
     if (_browserDriverDir.existsSync()) {
       _browserDriverDir.deleteSync(recursive: true);
     }
@@ -130,7 +132,10 @@ class IntegrationTestsManager {
     final String chromeDriverVersion = await queryChromeDriverVersion();
     ChromeDriverInstaller chromeDriverInstaller =
         ChromeDriverInstaller.withVersion(chromeDriverVersion);
-    await chromeDriverInstaller.install(alwaysInstall: true);
+    // TODO(yjbanov): remove this dynamic hack when chromeDriverInstaller.install returns Future<void>
+    //                https://github.com/flutter/flutter/issues/59376
+    final dynamic installationFuture = chromeDriverInstaller.install(alwaysInstall: true) as dynamic;
+    await installationFuture;
     io.Directory.current = temp;
   }
 
@@ -172,9 +177,9 @@ class IntegrationTestsManager {
         .whereType<io.File>()
         .toList();
 
-    final List<String> e2eTestsToRun = List<String>();
-    final List<String> blackList =
-        blackListsMap[getBlackListMapKey(_browser)] ?? <String>[];
+    final List<String> e2eTestsToRun = <String>[];
+    final List<String> blockedTests =
+        blockedTestsListsMap[getBlockedTestsListMapKey(_browser)] ?? <String>[];
 
     // The following loops over the contents of the directory and saves an
     // expected driver file name for each e2e test assuming any dart file
@@ -184,12 +189,12 @@ class IntegrationTestsManager {
     for (io.File f in entities) {
       final String basename = pathlib.basename(f.path);
       if (!basename.contains('_test.dart') && basename.endsWith('.dart')) {
-        // Do not add the basename if it is in the blacklist.
-        if (!blackList.contains(basename)) {
+        // Do not add the basename if it is in the `blockedTests`.
+        if (!blockedTests.contains(basename)) {
           e2eTestsToRun.add(basename);
         } else {
-          print('INFO: Test $basename is skipped since it is blacklisted for '
-              '${getBlackListMapKey(_browser)}');
+          print('INFO: Test $basename is skipped since it is blocked for '
+              '${getBlockedTestsListMapKey(_browser)}');
         }
       }
     }
@@ -265,7 +270,7 @@ class IntegrationTestsManager {
     // Whether the project has the pubspec.yaml file.
     bool pubSpecFound = false;
     // The test directory 'test_driver'.
-    io.Directory testDirectory = null;
+    io.Directory testDirectory;
 
     for (io.FileSystemEntity e in entities) {
       // The tests should be under this directories.
@@ -356,10 +361,10 @@ class IntegrationTestsManager {
   }
 }
 
-/// Prepares a key for the [blackList] map.
+/// Prepares a key for the [blockedTests] map.
 ///
 /// Uses the browser name and the operating system name.
-String getBlackListMapKey(String browser) =>
+String getBlockedTestsListMapKey(String browser) =>
     '${browser}-${io.Platform.operatingSystem}';
 
 /// Tests that should be skipped run for a specific platform-browser
@@ -368,11 +373,12 @@ String getBlackListMapKey(String browser) =>
 /// These tests might be failing or might have been implemented for a specific
 /// configuration.
 ///
-/// For example a mobile browser only tests will be added to blacklist for
-/// `chrome-linux`, `safari-macos` and `chrome-macos`.
+/// For example when adding a tests only intended for mobile browsers, it should
+/// be added to [blockedTests] for `chrome-linux`, `safari-macos` and
+/// `chrome-macos`. It will work on `chrome-android`, `safari-ios`.
 ///
 /// Note that integration tests are only running on chrome for now.
-const Map<String, List<String>> blackListsMap = <String, List<String>>{
+const Map<String, List<String>> blockedTestsListsMap = <String, List<String>>{
   'chrome-linux': [
     'target_platform_ios_e2e.dart',
     'target_platform_macos_e2e.dart',

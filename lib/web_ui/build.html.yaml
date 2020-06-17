@@ -1,3 +1,6 @@
+# Build configuration used by HTML (non-CanvasKit) tests.
+#
+# See also `build.canvaskit.yaml`.
 targets:
   $default:
     builders:
@@ -7,9 +10,11 @@ targets:
           dart2js_args:
             - --no-minify
             - --enable-asserts
+            - --enable-experiment=non-nullable
+            - --no-sound-null-safety
         generate_for:
           include:
             - test/**.dart
           exclude:
             - test/**vm_test.dart
-
+            - test/canvaskit/**.dart

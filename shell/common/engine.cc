@@ -90,6 +90,11 @@ fml::WeakPtr<Engine> Engine::GetWeakPtr() const {
   return weak_factory_.GetWeakPtr();
 }
 
+void Engine::SetupDefaultFontManager() {
+  TRACE_EVENT0("flutter", "Engine::SetupDefaultFontManager");
+  font_collection_.SetupDefaultFontManager();
+}
+
 bool Engine::UpdateAssetManager(
     std::shared_ptr<AssetManager> new_asset_manager) {
   if (asset_manager_ == new_asset_manager) {
@@ -485,6 +490,11 @@ void Engine::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
 void Engine::UpdateIsolateDescription(const std::string isolate_name,
                                       int64_t isolate_port) {
   delegate_.UpdateIsolateDescription(isolate_name, isolate_port);
+}
+
+std::unique_ptr<std::vector<std::string>> Engine::ComputePlatformResolvedLocale(
+    const std::vector<std::string>& supported_locale_data) {
+  return delegate_.ComputePlatformResolvedLocale(supported_locale_data);
 }
 
 void Engine::SetNeedsReportTimings(bool needs_reporting) {
