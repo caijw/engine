@@ -8,15 +8,6 @@ if [ $# -eq 1 ]; then
   FLUTTER_ENGINE=$1
 fi
 
-PRETTY="cat"
-if which xcpretty; then
-  PRETTY="xcpretty"
-fi
-
-set -o pipefail && xcodebuild -sdk iphonesimulator \
-  -scheme IosUnitTests \
-  -destination 'platform=iOS Simulator,name=iPhone 8' \
-  test \
-  FLUTTER_ENGINE=$FLUTTER_ENGINE | $PRETTY
+../../run_tests.py --variant $FLUTTER_ENGINE --type objc --ios-variant $FLUTTER_ENGINE
 
 popd
