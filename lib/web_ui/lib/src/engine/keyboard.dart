@@ -91,8 +91,7 @@ class Keyboard {
 
     final String timerKey = keyboardEvent.code!;
 
-    // Don't synthesize a keyup event for modifier keys because the browser always
-    // sends a keyup event for those.
+    // Don't handle synthesizing a keyup event for modifier keys
     if (!_isModifierKey(event)) {
       // When the user enters a browser/system shortcut (e.g. `cmd+alt+i`) the
       // browser doesn't send a keyup for it. This puts the framework in a
@@ -103,7 +102,10 @@ class Keyboard {
       // event within a specific duration ([_keydownCancelDuration]) we assume
       // the user has released the key and we synthesize a keyup event.
       _keydownTimers[timerKey]?.cancel();
-      if (event.type == 'keydown') {
+
+      // Only keys affected by modifiers, require synthesizing
+      // because the browser always sends a keyup event otherwise
+      if (event.type == 'keydown' && _isAffectedByModifiers(event)) {
         _keydownTimers[timerKey] = Timer(_keydownCancelDuration, () {
           _keydownTimers.remove(timerKey);
           _synthesizeKeyup(event);
@@ -114,6 +116,17 @@ class Keyboard {
     }
 
     _lastMetaState = _getMetaState(event);
+    if (event.type == 'keydown') {
+      // For lock modifiers _getMetaState won't report a metaState at keydown.
+      // See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/getModifierState.
+      if (event.key == 'CapsLock') {
+        _lastMetaState |= modifierCapsLock;
+      } else if (event.code == 'NumLock') {
+        _lastMetaState |= modifierNumLock;
+      } else if (event.key == 'ScrollLock') {
+        _lastMetaState |= modifierScrollLock;
+      }
+    }
     final Map<String, dynamic> eventData = <String, dynamic>{
       'type': event.type,
       'keymap': 'web',
@@ -130,7 +143,6 @@ class Keyboard {
     switch (event.key) {
       case 'Tab':
         return true;
-
       default:
         return false;
     }
@@ -155,6 +167,9 @@ const int _modifierShift = 0x01;
 const int _modifierAlt = 0x02;
 const int _modifierControl = 0x04;
 const int _modifierMeta = 0x08;
+const int modifierNumLock = 0x10;
+const int modifierCapsLock = 0x20;
+const int modifierScrollLock = 0x40;
 
 /// Creates a bitmask representing the meta state of the [event].
 int _getMetaState(html.KeyboardEvent event) {
@@ -171,8 +186,17 @@ int _getMetaState(html.KeyboardEvent event) {
   if (event.getModifierState('Meta')) {
     metaState |= _modifierMeta;
   }
-  // TODO: Re-enable lock key modifiers once there is support on Flutter
-  // Framework. https://github.com/flutter/flutter/issues/46718
+  // See https://github.com/flutter/flutter/issues/66601 for why we don't
+  // set the ones below based on persistent state.
+  // if (event.getModifierState("CapsLock")) {
+  //   metaState |= modifierCapsLock;
+  // }
+  // if (event.getModifierState("NumLock")) {
+  //   metaState |= modifierNumLock;
+  // }
+  // if (event.getModifierState("ScrollLock")) {
+  //   metaState |= modifierScrollLock;
+  // }
   return metaState;
 }
 
@@ -183,6 +207,13 @@ int _getMetaState(html.KeyboardEvent event) {
 bool _isModifierKey(html.KeyboardEvent event) {
   final String key = event.key!;
   return key == 'Meta' || key == 'Shift' || key == 'Alt' || key == 'Control';
+}
+
+/// Returns true if the [event] is been affects by any of the modifiers key
+///
+/// This is a strong indication that this key is been used for a shortcut
+bool _isAffectedByModifiers(html.KeyboardEvent event) {
+  return event.ctrlKey || event.shiftKey || event.altKey || event.metaKey;
 }
 
 void _noopCallback(ByteData? data) {}

@@ -6,6 +6,7 @@
 #define FLUTTER_SHELL_PLATFORM_ANDROID_ANDROID_SURFACE_GL_H_
 
 #include <jni.h>
+
 #include <memory>
 
 #include "flutter/fml/macros.h"
@@ -56,13 +57,16 @@ class AndroidSurfaceGL final : public GPUSurfaceGLDelegate,
   bool GLContextClearCurrent() override;
 
   // |GPUSurfaceGLDelegate|
-  bool GLContextPresent() override;
+  bool GLContextPresent(uint32_t fbo_id) override;
 
   // |GPUSurfaceGLDelegate|
   intptr_t GLContextFBO(GLFrameInfo frame_info) const override;
 
   // |GPUSurfaceGLDelegate|
   ExternalViewEmbedder* GetExternalViewEmbedder() override;
+
+  // |GPUSurfaceGLDelegate|
+  sk_sp<const GrGLInterface> GetGLInterface() const override;
 
  private:
   const std::unique_ptr<AndroidExternalViewEmbedder> external_view_embedder_;

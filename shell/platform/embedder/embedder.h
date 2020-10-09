@@ -346,7 +346,7 @@ typedef struct {
 /// This information is passed to the embedder when requesting a frame buffer
 /// object.
 ///
-/// See: \ref FlutterSoftwareRendererConfig.fbo_with_frame_info_callback.
+/// See: \ref FlutterOpenGLRendererConfig.fbo_with_frame_info_callback.
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterFrameInfo).
   size_t struct_size;
@@ -354,15 +354,34 @@ typedef struct {
   FlutterUIntSize size;
 } FlutterFrameInfo;
 
+/// Callback for when a frame buffer object is requested.
 typedef uint32_t (*UIntFrameInfoCallback)(
     void* /* user data */,
     const FlutterFrameInfo* /* frame info */);
+
+/// This information is passed to the embedder when a surface is presented.
+///
+/// See: \ref FlutterOpenGLRendererConfig.present_with_info.
+typedef struct {
+  /// The size of this struct. Must be sizeof(FlutterFrameInfo).
+  size_t struct_size;
+  /// Id of the fbo backing the surface that was presented.
+  uint32_t fbo_id;
+} FlutterPresentInfo;
+
+/// Callback for when a surface is presented.
+typedef bool (*BoolPresentInfoCallback)(
+    void* /* user data */,
+    const FlutterPresentInfo* /* present info */);
 
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterOpenGLRendererConfig).
   size_t struct_size;
   BoolCallback make_current;
   BoolCallback clear_current;
+  /// Specifying one (and only one) of `present` or `present_with_info` is
+  /// required. Specifying both is an error and engine initialization will be
+  /// terminated. The return value indicates success of the present call.
   BoolCallback present;
   /// Specifying one (and only one) of the `fbo_callback` or
   /// `fbo_with_frame_info_callback` is required. Specifying both is an error
@@ -407,6 +426,12 @@ typedef struct {
   /// `FlutterFrameInfo` struct that indicates the properties of the surface
   /// that flutter will acquire from the returned fbo.
   UIntFrameInfoCallback fbo_with_frame_info_callback;
+  /// Specifying one (and only one) of `present` or `present_with_info` is
+  /// required. Specifying both is an error and engine initialization will be
+  /// terminated. When using this variant, the embedder is passed a
+  /// `FlutterPresentInfo` struct that the embedder can use to release any
+  /// resources. The return value indicates success of the present call.
+  BoolPresentInfoCallback present_with_info;
 } FlutterOpenGLRendererConfig;
 
 typedef struct {
@@ -937,6 +962,56 @@ typedef struct {
 typedef const FlutterLocale* (*FlutterComputePlatformResolvedLocaleCallback)(
     const FlutterLocale** /* supported_locales*/,
     size_t /* Number of locales*/);
+
+/// Display refers to a graphics hardware system consisting of a framebuffer,
+/// typically a monitor or a screen. This ID is unique per display and is
+/// stable until the Flutter application restarts.
+typedef uint64_t FlutterEngineDisplayId;
+
+typedef struct {
+  /// This size of this struct. Must be sizeof(FlutterDisplay).
+  size_t struct_size;
+
+  FlutterEngineDisplayId display_id;
+
+  /// This is set to true if the embedder only has one display. In cases where
+  /// this is set to true, the value of display_id is ignored. In cases where
+  /// this is not set to true, it is expected that a valid display_id be
+  /// provided.
+  bool single_display;
+
+  /// This represents the refresh period in frames per second. This value may be
+  /// zero if the device is not running or unavaliable or unknown.
+  double refresh_rate;
+} FlutterEngineDisplay;
+
+/// The update type parameter that is passed to
+/// `FlutterEngineNotifyDisplayUpdate`.
+typedef enum {
+  /// `FlutterEngineDisplay`s that were active during start-up. A display is
+  /// considered active if:
+  ///    1. The frame buffer hardware is connected.
+  ///    2. The display is drawable, e.g. it isn't being mirrored from another
+  ///    connected display or sleeping.
+  kFlutterEngineDisplaysUpdateTypeStartup,
+  kFlutterEngineDisplaysUpdateTypeCount,
+} FlutterEngineDisplaysUpdateType;
+
+//------------------------------------------------------------------------------
+/// @brief    Posts updates corresponding to display changes to a running engine
+///           instance.
+///
+/// @param[in] update_type      The type of update pushed to the engine.
+/// @param[in] displays         The displays affected by this update.
+/// @param[in] display_count    Size of the displays array, must be at least 1.
+///
+/// @return the result of the call made to the engine.
+///
+FlutterEngineResult FlutterEngineNotifyDisplayUpdate(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    FlutterEngineDisplaysUpdateType update_type,
+    const FlutterEngineDisplay* displays,
+    size_t display_count);
 
 typedef int64_t FlutterEngineDartPort;
 

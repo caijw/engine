@@ -8,9 +8,9 @@
 #include "flutter/fml/macros.h"
 #include "flutter/fml/platform/darwin/scoped_nsobject.h"
 #include "flutter/shell/gpu/gpu_surface_gl.h"
-#include "flutter/shell/platform/darwin/ios/ios_context.h"
-#include "flutter/shell/platform/darwin/ios/ios_render_target_gl.h"
-#include "flutter/shell/platform/darwin/ios/ios_surface.h"
+#import "flutter/shell/platform/darwin/ios/ios_context.h"
+#import "flutter/shell/platform/darwin/ios/ios_render_target_gl.h"
+#import "flutter/shell/platform/darwin/ios/ios_surface.h"
 
 @class CAEAGLLayer;
 
@@ -40,7 +40,7 @@ class IOSSurfaceGL final : public IOSSurface, public GPUSurfaceGLDelegate {
   bool GLContextClearCurrent() override;
 
   // |GPUSurfaceGLDelegate|
-  bool GLContextPresent() override;
+  bool GLContextPresent(uint32_t fbo_id) override;
 
   // |GPUSurfaceGLDelegate|
   intptr_t GLContextFBO(GLFrameInfo frame_info) const override;

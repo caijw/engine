@@ -117,6 +117,7 @@ embedding_sources_jar_filename = "$embedding_artifact_id-sources.jar"
 embedding_source_jar_path = "$root_out_dir/$embedding_sources_jar_filename"
 
 android_java_sources = [
+  "io/flutter/FlutterInjector.java",
   "io/flutter/Log.java",
   "io/flutter/app/FlutterActivity.java",
   "io/flutter/app/FlutterActivityDelegate.java",
@@ -127,6 +128,7 @@ android_java_sources = [
   "io/flutter/embedding/android/AndroidKeyProcessor.java",
   "io/flutter/embedding/android/AndroidTouchProcessor.java",
   "io/flutter/embedding/android/DrawableSplashScreen.java",
+  "io/flutter/embedding/android/ExclusiveAppComponent.java",
   "io/flutter/embedding/android/FlutterActivity.java",
   "io/flutter/embedding/android/FlutterActivityAndFragmentDelegate.java",
   "io/flutter/embedding/android/FlutterActivityLaunchConfigs.java",
@@ -146,7 +148,7 @@ android_java_sources = [
   "io/flutter/embedding/android/TransparencyMode.java",
   "io/flutter/embedding/engine/FlutterEngine.java",
   "io/flutter/embedding/engine/FlutterEngineCache.java",
-  "io/flutter/embedding/engine/FlutterEnginePluginRegistry.java",
+  "io/flutter/embedding/engine/FlutterEngineConnectionRegistry.java",
   "io/flutter/embedding/engine/FlutterJNI.java",
   "io/flutter/embedding/engine/FlutterOverlaySurface.java",
   "io/flutter/embedding/engine/FlutterShellArgs.java",
@@ -176,6 +178,7 @@ android_java_sources = [
   "io/flutter/embedding/engine/plugins/service/ServicePluginBinding.java",
   "io/flutter/embedding/engine/plugins/shim/ShimPluginRegistry.java",
   "io/flutter/embedding/engine/plugins/shim/ShimRegistrar.java",
+  "io/flutter/embedding/engine/plugins/util/GeneratedPluginRegister.java",
   "io/flutter/embedding/engine/renderer/FlutterRenderer.java",
   "io/flutter/embedding/engine/renderer/FlutterUiDisplayListener.java",
   "io/flutter/embedding/engine/renderer/RenderSurface.java",
@@ -210,6 +213,7 @@ android_java_sources = [
   "io/flutter/plugin/common/StandardMethodCodec.java",
   "io/flutter/plugin/common/StringCodec.java",
   "io/flutter/plugin/editing/FlutterTextUtils.java",
+  "io/flutter/plugin/editing/ImeSyncDeferringInsetsCallback.java",
   "io/flutter/plugin/editing/InputConnectionAdaptor.java",
   "io/flutter/plugin/editing/TextInputPlugin.java",
   "io/flutter/plugin/localization/LocalizationPlugin.java",
@@ -246,6 +250,23 @@ embedding_dependencies_jars =
                   rebase_path("//third_party/android_embedding_dependencies"),
                 ],
                 "list lines")
+
+action("check_imports") {
+  script = "//flutter/tools/android_illegal_imports.py"
+
+  sources = android_java_sources
+
+  stamp_file = "$root_out_dir/check_android_imports"
+
+  # File does not actually get created, but GN expects us to have an output here.
+  outputs = [ stamp_file ]
+
+  args = [
+           "--stamp",
+           rebase_path(stamp_file),
+           "--files",
+         ] + rebase_path(android_java_sources)
+}
 
 action("flutter_shell_java") {
   script = "//build/android/gyp/javac.py"
@@ -295,7 +316,10 @@ action("flutter_shell_java") {
 
   args += rebase_path(sources, root_build_dir)
 
-  deps = [ ":gen_android_build_config_java" ]
+  deps = [
+    ":check_imports",
+    ":gen_android_build_config_java",
+  ]
 }
 
 action("icudtl_object") {
@@ -415,8 +439,10 @@ action("robolectric_tests") {
   jar_path = "$root_out_dir/robolectric_tests.jar"
 
   sources = [
+    "test/io/flutter/FlutterInjectorTest.java",
     "test/io/flutter/FlutterTestSuite.java",
     "test/io/flutter/SmokeTest.java",
+    "test/io/flutter/embedding/android/AndroidKeyProcessorTest.java",
     "test/io/flutter/embedding/android/FlutterActivityAndFragmentDelegateTest.java",
     "test/io/flutter/embedding/android/FlutterActivityTest.java",
     "test/io/flutter/embedding/android/FlutterAndroidComponentTest.java",
@@ -425,7 +451,7 @@ action("robolectric_tests") {
     "test/io/flutter/embedding/android/FlutterViewTest.java",
     "test/io/flutter/embedding/android/RobolectricFlutterActivity.java",
     "test/io/flutter/embedding/engine/FlutterEngineCacheTest.java",
-    "test/io/flutter/embedding/engine/FlutterEnginePluginRegistryTest.java",
+    "test/io/flutter/embedding/engine/FlutterEngineConnectionRegistryTest.java",
     "test/io/flutter/embedding/engine/FlutterEngineTest.java",
     "test/io/flutter/embedding/engine/FlutterJNITest.java",
     "test/io/flutter/embedding/engine/FlutterShellArgsTest.java",
@@ -433,8 +459,11 @@ action("robolectric_tests") {
     "test/io/flutter/embedding/engine/RenderingComponentTest.java",
     "test/io/flutter/embedding/engine/dart/DartExecutorTest.java",
     "test/io/flutter/embedding/engine/loader/ApplicationInfoLoaderTest.java",
+    "test/io/flutter/embedding/engine/loader/FlutterLoaderTest.java",
+    "test/io/flutter/embedding/engine/mutatorsstack/FlutterMutatorViewTest.java",
     "test/io/flutter/embedding/engine/plugins/shim/ShimPluginRegistryTest.java",
     "test/io/flutter/embedding/engine/renderer/FlutterRendererTest.java",
+    "test/io/flutter/embedding/engine/systemchannels/KeyEventChannelTest.java",
     "test/io/flutter/embedding/engine/systemchannels/PlatformChannelTest.java",
     "test/io/flutter/embedding/engine/systemchannels/RestorationChannelTest.java",
     "test/io/flutter/external/FlutterLaunchTests.java",

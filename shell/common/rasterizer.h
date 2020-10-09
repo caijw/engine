@@ -50,7 +50,7 @@ class Rasterizer final : public SnapshotDelegate {
   ///             are made on the GPU task runner. Any delegate must ensure that
   ///             they can handle the threading implications.
   ///
-  class Delegate : public CompositorContext::Delegate {
+  class Delegate {
    public:
     //--------------------------------------------------------------------------
     /// @brief      Notifies the delegate that a frame has been rendered. The
@@ -68,7 +68,9 @@ class Rasterizer final : public SnapshotDelegate {
     ///
     virtual void OnFrameRasterized(const FrameTiming& frame_timing) = 0;
 
-    /// Time limit for a smooth frame. See `Engine::GetDisplayRefreshRate`.
+    /// Time limit for a smooth frame.
+    ///
+    /// See: `DisplayManager::GetMainDisplayRefreshRate`.
     virtual fml::Milliseconds GetFrameBudget() = 0;
 
     /// Target time for the latest frame. See also `Shell::OnAnimatorBeginFrame`
@@ -97,6 +99,7 @@ class Rasterizer final : public SnapshotDelegate {
   ///
   Rasterizer(Delegate& delegate);
 
+#if defined(LEGACY_FUCHSIA_EMBEDDER)
   //----------------------------------------------------------------------------
   /// @brief      Creates a new instance of a rasterizer. Rasterizers may only
   ///             be created on the GPU task runner. Rasterizers are currently
@@ -109,6 +112,7 @@ class Rasterizer final : public SnapshotDelegate {
   ///
   Rasterizer(Delegate& delegate,
              std::unique_ptr<flutter::CompositorContext> compositor_context);
+#endif
 
   //----------------------------------------------------------------------------
   /// @brief      Destroys the rasterizer. This must happen on the GPU task
@@ -202,6 +206,8 @@ class Rasterizer final : public SnapshotDelegate {
   ///
   flutter::TextureRegistry* GetTextureRegistry();
 
+  using LayerTreeDiscardCallback = std::function<bool(flutter::LayerTree&)>;
+
   //----------------------------------------------------------------------------
   /// @brief      Takes the next item from the layer tree pipeline and executes
   ///             the raster thread frame workload for that pipeline item to
@@ -230,8 +236,11 @@ class Rasterizer final : public SnapshotDelegate {
   ///
   /// @param[in]  pipeline  The layer tree pipeline to take the next layer tree
   ///                       to render from.
+  /// @param[in]  discardCallback if specified and returns true, the layer tree
+  ///                             is discarded instead of being rendered
   ///
-  void Draw(fml::RefPtr<Pipeline<flutter::LayerTree>> pipeline);
+  void Draw(fml::RefPtr<Pipeline<flutter::LayerTree>> pipeline,
+            LayerTreeDiscardCallback discardCallback = NoDiscard);
 
   //----------------------------------------------------------------------------
   /// @brief      The type of the screenshot to obtain of the previously
@@ -390,20 +399,28 @@ class Rasterizer final : public SnapshotDelegate {
   std::optional<size_t> GetResourceCacheMaxBytes() const;
 
   //----------------------------------------------------------------------------
-  /// @brief      Makes sure the raster task runner and the platform task runner
-  ///             are merged.
+  /// @brief      Enables the thread merger if the external view embedder
+  ///             supports dynamic thread merging.
   ///
-  /// @attention  If raster and platform task runners are not the same or not
-  ///             merged, this method will try to merge the task runners,
-  ///             blocking the current thread until the 2 task runners are
-  ///             merged.
+  /// @attention  This method is thread-safe. When the thread merger is enabled,
+  ///             the raster task queue can run in the platform thread at any
+  ///             time.
   ///
-  /// @return     `true` if raster and platform task runners are the same.
-  ///             `true` if/when raster and platform task runners are merged.
-  ///             `false` if the surface or the |RasterThreadMerger| has not
-  ///             been initialized.
+  /// @see        `ExternalViewEmbedder`
   ///
-  bool EnsureThreadsAreMerged();
+  void EnableThreadMergerIfNeeded();
+
+  //----------------------------------------------------------------------------
+  /// @brief      Disables the thread merger if the external view embedder
+  ///             supports dynamic thread merging.
+  ///
+  /// @attention  This method is thread-safe. When the thread merger is
+  ///             disabled, the raster task queue will continue to run in the
+  ///             same thread until |EnableThreadMergerIfNeeded| is called.
+  ///
+  /// @see        `ExternalViewEmbedder`
+  ///
+  void DisableThreadMergerIfNeeded();
 
  private:
   Delegate& delegate_;
@@ -418,8 +435,8 @@ class Rasterizer final : public SnapshotDelegate {
   fml::closure next_frame_callback_;
   bool user_override_resource_cache_bytes_;
   std::optional<size_t> max_cache_bytes_;
-  fml::TaskRunnerAffineWeakPtrFactory<Rasterizer> weak_factory_;
   fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger_;
+  fml::TaskRunnerAffineWeakPtrFactory<Rasterizer> weak_factory_;
 
   // |SnapshotDelegate|
   sk_sp<SkImage> MakeRasterSnapshot(sk_sp<SkPicture> picture,
@@ -443,6 +460,8 @@ class Rasterizer final : public SnapshotDelegate {
   RasterStatus DrawToSurface(flutter::LayerTree& layer_tree);
 
   void FireNextFrameCallbackIfPresent();
+
+  static bool NoDiscard(const flutter::LayerTree& layer_tree) { return false; }
 
   FML_DISALLOW_COPY_AND_ASSIGN(Rasterizer);
 };

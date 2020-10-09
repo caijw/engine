@@ -26,7 +26,6 @@ part 'engine/alarm_clock.dart';
 part 'engine/assets.dart';
 part 'engine/bitmap_canvas.dart';
 part 'engine/browser_detection.dart';
-part 'engine/browser_location.dart';
 part 'engine/canvaskit/canvas.dart';
 part 'engine/canvaskit/canvaskit_canvas.dart';
 part 'engine/canvaskit/canvaskit_api.dart';
@@ -63,10 +62,13 @@ part 'engine/dom_canvas.dart';
 part 'engine/dom_renderer.dart';
 part 'engine/engine_canvas.dart';
 part 'engine/frame_reference.dart';
-part 'engine/history.dart';
+part 'engine/navigation/history.dart';
+part 'engine/navigation/js_url_strategy.dart';
+part 'engine/navigation/url_strategy.dart';
 part 'engine/html/backdrop_filter.dart';
 part 'engine/html/canvas.dart';
 part 'engine/html/clip.dart';
+part 'engine/html/color_filter.dart';
 part 'engine/html/debug_canvas_reuse_overlay.dart';
 part 'engine/html/image_filter.dart';
 part 'engine/html/offset.dart';
@@ -163,8 +165,6 @@ void registerHotRestartListener(ui.VoidCallback listener) {
 ///
 /// This is only available on the Web, as native Flutter configures the
 /// environment in the native embedder.
-// TODO(yjbanov): we should refactor the code such that the framework does not
-//                call this method directly.
 void initializeEngine() {
   if (_engineInitialized) {
     return;
@@ -204,6 +204,8 @@ void initializeEngine() {
     if (!waitingForAnimation) {
       waitingForAnimation = true;
       html.window.requestAnimationFrame((num highResTime) {
+        _frameTimingsOnVsync();
+
         // Reset immediately, because `frameHandler` can schedule more frames.
         waitingForAnimation = false;
 
@@ -214,6 +216,13 @@ void initializeEngine() {
         // microsecond precision, and only then convert to `int`.
         final int highResTimeMicroseconds = (1000 * highResTime).toInt();
 
+        // In Flutter terminology "building a frame" consists of "beginning
+        // frame" and "drawing frame".
+        //
+        // We do not call `_frameTimingsOnBuildFinish` from here because
+        // part of the rasterization process, particularly in the HTML
+        // renderer, takes place in the `SceneBuilder.build()`.
+        _frameTimingsOnBuildStart();
         if (window._onBeginFrame != null) {
           window.invokeOnBeginFrame(
               Duration(microseconds: highResTimeMicroseconds));

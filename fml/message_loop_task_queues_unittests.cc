@@ -4,12 +4,16 @@
 
 #define FML_USED_ON_EMBEDDER
 
+#include "flutter/fml/message_loop_task_queues.h"
+
 #include <thread>
 
-#include "flutter/fml/message_loop_task_queues.h"
 #include "flutter/fml/synchronization/count_down_latch.h"
 #include "flutter/fml/synchronization/waitable_event.h"
 #include "gtest/gtest.h"
+
+namespace fml {
+namespace testing {
 
 class TestWakeable : public fml::Wakeable {
  public:
@@ -69,12 +73,13 @@ TEST(MessageLoopTaskQueue, PreserveTaskOrdering) {
   task_queue->RegisterTask(
       queue_id, [&test_val]() { test_val = 2; }, fml::TimePoint::Now());
 
-  std::vector<fml::closure> invocations;
-  task_queue->GetTasksToRunNow(queue_id, fml::FlushType::kAll, invocations);
-
+  const auto now = fml::TimePoint::Now();
   int expected_value = 1;
-
-  for (auto& invocation : invocations) {
+  for (;;) {
+    fml::closure invocation = task_queue->GetNextTaskToRun(queue_id, now);
+    if (!invocation) {
+      break;
+    }
     invocation();
     ASSERT_TRUE(test_val == expected_value);
     expected_value++;
@@ -277,3 +282,6 @@ TEST(MessageLoopTaskQueue, RegisterTaskWakesUpOwnerQueue) {
   ASSERT_EQ(time1, wakes[1]);
   ASSERT_EQ(time1, wakes[2]);
 }
+
+}  // namespace testing
+}  // namespace fml

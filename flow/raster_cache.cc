@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "flutter/common/constants.h"
 #include "flutter/flow/layers/layer.h"
 #include "flutter/flow/paint_utils.h"
 #include "flutter/fml/logging.h"
@@ -141,7 +142,6 @@ void RasterCache::Prepare(PrerollContext* context,
   Entry& entry = layer_cache_[cache_key];
   entry.access_count++;
   entry.used_this_frame = true;
-  entry.external_size = layer->external_size();
   if (!entry.image) {
     entry.image = RasterizeLayer(context, layer, ctm, checkerboard_images_);
   }
@@ -182,8 +182,7 @@ bool RasterCache::Prepare(GrDirectContext* context,
                           const SkMatrix& transformation_matrix,
                           SkColorSpace* dst_color_space,
                           bool is_complex,
-                          bool will_change,
-                          size_t external_size) {
+                          bool will_change) {
   // Disabling caching when access_threshold is zero is historic behavior.
   if (access_threshold_ == 0) {
     return false;
@@ -209,7 +208,6 @@ bool RasterCache::Prepare(GrDirectContext* context,
 
   // Creates an entry, if not present prior.
   Entry& entry = picture_cache_[cache_key];
-  entry.external_size = external_size;
   if (entry.access_count < access_threshold_) {
     // Frame threshold has not yet been reached.
     return false;
@@ -263,12 +261,11 @@ bool RasterCache::Draw(const Layer* layer,
   return false;
 }
 
-size_t RasterCache::SweepAfterFrame() {
-  size_t removed_size = SweepOneCacheAfterFrame(picture_cache_);
-  removed_size += SweepOneCacheAfterFrame(layer_cache_);
+void RasterCache::SweepAfterFrame() {
+  SweepOneCacheAfterFrame(picture_cache_);
+  SweepOneCacheAfterFrame(layer_cache_);
   picture_cached_this_frame_ = 0;
   TraceStatsToTimeline();
-  return removed_size;
 }
 
 void RasterCache::Clear() {
@@ -302,12 +299,11 @@ void RasterCache::SetCheckboardCacheImages(bool checkerboard) {
 
 void RasterCache::TraceStatsToTimeline() const {
 #if !FLUTTER_RELEASE
-  constexpr double kMegaBytes = (1 << 20);
   FML_TRACE_COUNTER("flutter", "RasterCache", reinterpret_cast<int64_t>(this),
                     "LayerCount", layer_cache_.size(), "LayerMBytes",
-                    EstimateLayerCacheByteSize() / kMegaBytes, "PictureCount",
-                    picture_cache_.size(), "PictureMBytes",
-                    EstimatePictureCacheByteSize() / kMegaBytes);
+                    EstimateLayerCacheByteSize() / kMegaByteSizeInBytes,
+                    "PictureCount", picture_cache_.size(), "PictureMBytes",
+                    EstimatePictureCacheByteSize() / kMegaByteSizeInBytes);
 
 #endif  // !FLUTTER_RELEASE
 }

@@ -76,11 +76,12 @@ Engine::Engine(Delegate& delegate,
              io_manager,
              nullptr) {
   runtime_controller_ = std::make_unique<RuntimeController>(
-      *this,                        // runtime delegate
-      &vm,                          // VM
-      std::move(isolate_snapshot),  // isolate snapshot
-      task_runners_,                // task runners
-      std::move(snapshot_delegate),
+      *this,                                 // runtime delegate
+      &vm,                                   // VM
+      std::move(isolate_snapshot),           // isolate snapshot
+      task_runners_,                         // task runners
+      std::move(snapshot_delegate),          // snapshot delegate
+      GetWeakPtr(),                          // hint freed delegate
       std::move(io_manager),                 // io manager
       std::move(unref_queue),                // Skia unref queue
       image_decoder_.GetWeakPtr(),           // image decoder
@@ -96,10 +97,6 @@ Engine::Engine(Delegate& delegate,
 
 Engine::~Engine() = default;
 
-float Engine::GetDisplayRefreshRate() const {
-  return animator_->GetDisplayRefreshRate();
-}
-
 fml::WeakPtr<Engine> Engine::GetWeakPtr() const {
   return weak_factory_.GetWeakPtr();
 }
@@ -107,6 +104,10 @@ fml::WeakPtr<Engine> Engine::GetWeakPtr() const {
 void Engine::SetupDefaultFontManager() {
   TRACE_EVENT0("flutter", "Engine::SetupDefaultFontManager");
   font_collection_.SetupDefaultFontManager();
+}
+
+std::shared_ptr<AssetManager> Engine::GetAssetManager() {
+  return asset_manager_;
 }
 
 bool Engine::UpdateAssetManager(

@@ -327,11 +327,13 @@ Shell::Shell(DartVMRef vm, TaskRunners task_runners, Settings settings)
       settings_(std::move(settings)),
       vm_(std::move(vm)),
       is_gpu_disabled_sync_switch_(new fml::SyncSwitch()),
-      weak_factory_(this),
-      weak_factory_gpu_(nullptr) {
+      weak_factory_gpu_(nullptr),
+      weak_factory_(this) {
   FML_CHECK(vm_) << "Must have access to VM to create a shell.";
   FML_DCHECK(task_runners_.IsValid());
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
+
+  display_manager_ = std::make_unique<DisplayManager>();
 
   // Generate a WeakPtrFactory for use with the raster thread. This does not
   // need to wait on a latch because it can only ever be used from the raster
@@ -400,13 +402,12 @@ Shell::~Shell() {
 
   fml::TaskRunner::RunNowOrPostTask(
       task_runners_.GetRasterTaskRunner(),
-      fml::MakeCopyable([rasterizer = std::move(rasterizer_),
-                         weak_factory_gpu = std::move(weak_factory_gpu_),
-                         &gpu_latch]() mutable {
-        rasterizer.reset();
-        weak_factory_gpu.reset();
-        gpu_latch.Signal();
-      }));
+      fml::MakeCopyable(
+          [this, rasterizer = std::move(rasterizer_), &gpu_latch]() mutable {
+            rasterizer.reset();
+            this->weak_factory_gpu_.reset();
+            gpu_latch.Signal();
+          }));
   gpu_latch.Wait();
 
   fml::TaskRunner::RunNowOrPostTask(
@@ -575,14 +576,6 @@ bool Shell::Setup(std::unique_ptr<PlatformView> platform_view,
     PersistentCache::GetCacheForProcess()->Purge();
   }
 
-  // TODO(gw280): The WeakPtr here asserts that we are derefing it on the
-  // same thread as it was created on. Shell is constructed on the platform
-  // thread but we need to call into the Engine on the UI thread, so we need
-  // to use getUnsafe() here to avoid failing the assertion.
-  //
-  // https://github.com/flutter/flutter/issues/42947
-  display_refresh_rate_ = weak_engine_.getUnsafe()->GetDisplayRefreshRate();
-
   return true;
 }
 
@@ -609,6 +602,11 @@ fml::WeakPtr<PlatformView> Shell::GetPlatformView() {
   return weak_platform_view_;
 }
 
+fml::WeakPtr<ShellIOManager> Shell::GetIOManager() {
+  FML_DCHECK(is_setup_);
+  return io_manager_->GetWeakPtr();
+}
+
 DartVM* Shell::GetDartVM() {
   return &vm_;
 }
@@ -618,6 +616,30 @@ void Shell::OnPlatformViewCreated(std::unique_ptr<Surface> surface) {
   TRACE_EVENT0("flutter", "Shell::OnPlatformViewCreated");
   FML_DCHECK(is_setup_);
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
+
+  // Prevent any request to change the thread configuration for raster and
+  // platform queues while the platform view is being created.
+  //
+  // This prevents false positives such as this method starts assuming that the
+  // raster and platform queues have a given thread configuration, but then the
+  // configuration is changed by a task, and the asumption is not longer true.
+  //
+  // This incorrect assumption can lead to dead lock.
+  // See `should_post_raster_task` for more.
+  rasterizer_->DisableThreadMergerIfNeeded();
+
+  // The normal flow executed by this method is that the platform thread is
+  // starting the sequence and waiting on the latch. Later the UI thread posts
+  // raster_task to the raster thread which signals the latch. If the raster and
+  // the platform threads are the same this results in a deadlock as the
+  // raster_task will never be posted to the plaform/raster thread that is
+  // blocked on a latch. To avoid the described deadlock, if the raster and the
+  // platform threads are the same, should_post_raster_task will be false, and
+  // then instead of posting a task to the raster thread, the ui thread just
+  // signals the latch and the platform/raster thread follows with executing
+  // raster_task.
+  const bool should_post_raster_task =
+      !task_runners_.GetRasterTaskRunner()->RunsTasksOnCurrentThread();
 
   // Note:
   // This is a synchronous operation because certain platforms depend on
@@ -630,6 +652,9 @@ void Shell::OnPlatformViewCreated(std::unique_ptr<Surface> surface) {
                          surface = std::move(surface),            //
                          &latch]() mutable {
         if (rasterizer) {
+          // Enables the thread merger which may be used by the external view
+          // embedder.
+          rasterizer->EnableThreadMergerIfNeeded();
           rasterizer->Setup(std::move(surface));
         }
 
@@ -639,19 +664,6 @@ void Shell::OnPlatformViewCreated(std::unique_ptr<Surface> surface) {
         // waiting on.
         latch.Signal();
       });
-
-  // The normal flow executed by this method is that the platform thread is
-  // starting the sequence and waiting on the latch. Later the UI thread posts
-  // raster_task to the raster thread which signals the latch. If the raster and
-  // the platform threads are the same this results in a deadlock as the
-  // raster_task will never be posted to the plaform/raster thread that is
-  // blocked on a latch. To avoid the described deadlock, if the raster and the
-  // platform threads are the same, should_post_raster_task will be false, and
-  // then instead of posting a task to the raster thread, the ui thread just
-  // signals the latch and the platform/raster thread follows with executing
-  // raster_task.
-  bool should_post_raster_task = task_runners_.GetRasterTaskRunner() !=
-                                 task_runners_.GetPlatformTaskRunner();
 
   auto ui_task = [engine = engine_->GetWeakPtr(),                            //
                   raster_task_runner = task_runners_.GetRasterTaskRunner(),  //
@@ -708,6 +720,30 @@ void Shell::OnPlatformViewDestroyed() {
   FML_DCHECK(is_setup_);
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
 
+  // Prevent any request to change the thread configuration for raster and
+  // platform queues while the platform view is being destroyed.
+  //
+  // This prevents false positives such as this method starts assuming that the
+  // raster and platform queues have a given thread configuration, but then the
+  // configuration is changed by a task, and the asumption is not longer true.
+  //
+  // This incorrect assumption can lead to dead lock.
+  // See `should_post_raster_task` for more.
+  rasterizer_->DisableThreadMergerIfNeeded();
+
+  // The normal flow executed by this method is that the platform thread is
+  // starting the sequence and waiting on the latch. Later the UI thread posts
+  // raster_task to the raster thread triggers signaling the latch(on the IO
+  // thread). If the raster and the platform threads are the same this results
+  // in a deadlock as the raster_task will never be posted to the plaform/raster
+  // thread that is blocked on a latch.  To avoid the described deadlock, if the
+  // raster and the platform threads are the same, should_post_raster_task will
+  // be false, and then instead of posting a task to the raster thread, the ui
+  // thread just signals the latch and the platform/raster thread follows with
+  // executing raster_task.
+  const bool should_post_raster_task =
+      !task_runners_.GetRasterTaskRunner()->RunsTasksOnCurrentThread();
+
   // Note:
   // This is a synchronous operation because certain platforms depend on
   // setup/suspension of all activities that may be interacting with the GPU in
@@ -730,33 +766,59 @@ void Shell::OnPlatformViewDestroyed() {
                       io_task_runner = task_runners_.GetIOTaskRunner(),
                       io_task]() {
     if (rasterizer) {
+      // Enables the thread merger which is required prior tearing down the
+      // rasterizer. If the raster and platform threads are merged, tearing down
+      // the rasterizer unmerges the threads.
+      rasterizer->EnableThreadMergerIfNeeded();
       rasterizer->Teardown();
     }
     // Step 2: Next, tell the IO thread to complete its remaining work.
     fml::TaskRunner::RunNowOrPostTask(io_task_runner, io_task);
   };
 
-  auto ui_task = [engine = engine_->GetWeakPtr(), &latch]() {
+  auto ui_task = [engine = engine_->GetWeakPtr(),
+                  raster_task_runner = task_runners_.GetRasterTaskRunner(),
+                  raster_task, should_post_raster_task, &latch]() {
     if (engine) {
       engine->OnOutputSurfaceDestroyed();
     }
-    latch.Signal();
+    if (should_post_raster_task) {
+      fml::TaskRunner::RunNowOrPostTask(raster_task_runner, raster_task);
+    } else {
+      // See comment on should_post_raster_task, in this case we just unblock
+      // the platform thread.
+      latch.Signal();
+    }
   };
 
   // Step 0: Post a task onto the UI thread to tell the engine that its output
   // surface is about to go away.
   fml::TaskRunner::RunNowOrPostTask(task_runners_.GetUITaskRunner(), ui_task);
+
   latch.Wait();
-  rasterizer_->EnsureThreadsAreMerged();
-  fml::TaskRunner::RunNowOrPostTask(task_runners_.GetRasterTaskRunner(),
-                                    raster_task);
-  latch.Wait();
+  if (!should_post_raster_task) {
+    // See comment on should_post_raster_task, in this case the raster_task
+    // wasn't executed, and we just run it here as the platform thread
+    // is the raster thread.
+    raster_task();
+    latch.Wait();
+  }
 }
 
 // |PlatformView::Delegate|
 void Shell::OnPlatformViewSetViewportMetrics(const ViewportMetrics& metrics) {
   FML_DCHECK(is_setup_);
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
+
+  if (metrics.device_pixel_ratio <= 0 || metrics.physical_width <= 0 ||
+      metrics.physical_height <= 0) {
+    FML_DLOG(ERROR)
+        << "Embedding reported invalid ViewportMetrics, ignoring update."
+        << "\nphysical_width: " << metrics.physical_width
+        << "\nphysical_height: " << metrics.physical_height
+        << "\ndevice_pixel_ratio: " << metrics.device_pixel_ratio;
+    return;
+  }
 
   // This is the formula Android uses.
   // https://android.googlesource.com/platform/frameworks/base/+/master/libs/hwui/renderthread/CacheManager.cpp#41
@@ -774,6 +836,12 @@ void Shell::OnPlatformViewSetViewportMetrics(const ViewportMetrics& metrics) {
           engine->SetViewportMetrics(metrics);
         }
       });
+
+  {
+    std::scoped_lock<std::mutex> lock(resize_mutex_);
+    expected_frame_size_ =
+        SkISize::Make(metrics.physical_width, metrics.physical_height);
+  }
 }
 
 // |PlatformView::Delegate|
@@ -963,13 +1031,19 @@ void Shell::OnAnimatorDraw(fml::RefPtr<Pipeline<flutter::LayerTree>> pipeline,
     }
   }
 
+  auto discard_callback = [this](flutter::LayerTree& tree) {
+    std::scoped_lock<std::mutex> lock(resize_mutex_);
+    return !expected_frame_size_.isEmpty() &&
+           tree.frame_size() != expected_frame_size_;
+  };
+
   task_runners_.GetRasterTaskRunner()->PostTask(
       [&waiting_for_first_frame = waiting_for_first_frame_,
        &waiting_for_first_frame_condition = waiting_for_first_frame_condition_,
-       rasterizer = rasterizer_->GetWeakPtr(),
-       pipeline = std::move(pipeline)]() {
+       rasterizer = rasterizer_->GetWeakPtr(), pipeline = std::move(pipeline),
+       discard_callback = std::move(discard_callback)]() {
         if (rasterizer) {
-          rasterizer->Draw(pipeline);
+          rasterizer->Draw(pipeline, std::move(discard_callback));
 
           if (waiting_for_first_frame.load()) {
             waiting_for_first_frame.store(false);
@@ -1167,7 +1241,7 @@ void Shell::OnFrameRasterized(const FrameTiming& timing) {
     frame_timings_report_scheduled_ = true;
     task_runners_.GetRasterTaskRunner()->PostDelayedTask(
         [self = weak_factory_gpu_->GetWeakPtr()]() {
-          if (!self.get()) {
+          if (!self) {
             return;
           }
           self->frame_timings_report_scheduled_ = false;
@@ -1179,19 +1253,10 @@ void Shell::OnFrameRasterized(const FrameTiming& timing) {
   }
 }
 
-void Shell::OnCompositorEndFrame(size_t freed_hint) {
-  FML_DCHECK(task_runners_.GetRasterTaskRunner()->RunsTasksOnCurrentThread());
-  task_runners_.GetUITaskRunner()->PostTask(
-      [engine = weak_engine_, freed_hint = freed_hint]() {
-        if (engine) {
-          engine->HintFreed(freed_hint);
-        }
-      });
-}
-
 fml::Milliseconds Shell::GetFrameBudget() {
-  if (display_refresh_rate_ > 0) {
-    return fml::RefreshRateToFrameBudget(display_refresh_rate_.load());
+  double display_refresh_rate = display_manager_->GetMainDisplayRefreshRate();
+  if (display_refresh_rate > 0) {
+    return fml::RefreshRateToFrameBudget(display_refresh_rate);
   } else {
     return fml::kDefaultFrameBudget;
   }
@@ -1336,9 +1401,21 @@ bool Shell::OnServiceProtocolRunInView(
   configuration.SetEntrypointAndLibrary(engine_->GetLastEntrypoint(),
                                         engine_->GetLastEntrypointLibrary());
 
-  configuration.AddAssetResolver(
-      std::make_unique<DirectoryAssetBundle>(fml::OpenDirectory(
-          asset_directory_path.c_str(), false, fml::FilePermission::kRead)));
+  configuration.AddAssetResolver(std::make_unique<DirectoryAssetBundle>(
+      fml::OpenDirectory(asset_directory_path.c_str(), false,
+                         fml::FilePermission::kRead),
+      false));
+
+  // Preserve any original asset resolvers to avoid syncing unchanged assets
+  // over the DevFS connection.
+  auto old_asset_manager = engine_->GetAssetManager();
+  if (old_asset_manager != nullptr) {
+    for (auto& old_resolver : old_asset_manager->TakeResolvers()) {
+      if (old_resolver->IsValidAfterAssetManagerChange()) {
+        configuration.AddAssetResolver(std::move(old_resolver));
+      }
+    }
+  }
 
   auto& allocator = response->GetAllocator();
   response->SetObject();
@@ -1382,9 +1459,13 @@ bool Shell::OnServiceProtocolGetDisplayRefreshRate(
   FML_DCHECK(task_runners_.GetUITaskRunner()->RunsTasksOnCurrentThread());
   response->SetObject();
   response->AddMember("type", "DisplayRefreshRate", response->GetAllocator());
-  response->AddMember("fps", engine_->GetDisplayRefreshRate(),
+  response->AddMember("fps", display_manager_->GetMainDisplayRefreshRate(),
                       response->GetAllocator());
   return true;
+}
+
+double Shell::GetMainDisplayRefreshRate() {
+  return display_manager_->GetMainDisplayRefreshRate();
 }
 
 bool Shell::OnServiceProtocolGetSkSLs(
@@ -1449,7 +1530,19 @@ bool Shell::OnServiceProtocolSetAssetBundlePath(
 
   asset_manager->PushFront(std::make_unique<DirectoryAssetBundle>(
       fml::OpenDirectory(params.at("assetDirectory").data(), false,
-                         fml::FilePermission::kRead)));
+                         fml::FilePermission::kRead),
+      false));
+
+  // Preserve any original asset resolvers to avoid syncing unchanged assets
+  // over the DevFS connection.
+  auto old_asset_manager = engine_->GetAssetManager();
+  if (old_asset_manager != nullptr) {
+    for (auto& old_resolver : old_asset_manager->TakeResolvers()) {
+      if (old_resolver->IsValidAfterAssetManagerChange()) {
+        asset_manager->PushBack(std::move(old_resolver));
+      }
+    }
+  }
 
   if (engine_->UpdateAssetManager(std::move(asset_manager))) {
     response->AddMember("type", "Success", allocator);
@@ -1546,6 +1639,11 @@ bool Shell::ReloadSystemFonts() {
 
 std::shared_ptr<fml::SyncSwitch> Shell::GetIsGpuDisabledSyncSwitch() const {
   return is_gpu_disabled_sync_switch_;
+}
+
+void Shell::OnDisplayUpdates(DisplayUpdateType update_type,
+                             std::vector<Display> displays) {
+  display_manager_->HandleDisplayUpdates(update_type, displays);
 }
 
 }  // namespace flutter

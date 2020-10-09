@@ -37,7 +37,7 @@ class GPUSurfaceGLDelegate : public GPUSurfaceDelegate {
 
   // Called to present the main GL surface. This is only called for the main GL
   // context and not any of the contexts dedicated for IO.
-  virtual bool GLContextPresent() = 0;
+  virtual bool GLContextPresent(uint32_t fbo_id) = 0;
 
   // The ID of the main window bound framebuffer. Typically FBO0.
   virtual intptr_t GLContextFBO(GLFrameInfo frame_info) const = 0;
@@ -57,7 +57,7 @@ class GPUSurfaceGLDelegate : public GPUSurfaceDelegate {
   // flushed.
   virtual SkMatrix GLContextSurfaceTransformation() const;
 
-  sk_sp<const GrGLInterface> GetGLInterface() const;
+  virtual sk_sp<const GrGLInterface> GetGLInterface() const;
 
   // TODO(chinmaygarde): The presence of this method is to work around the fact
   // that not all platforms can accept a custom GL proc table. Migrate all
